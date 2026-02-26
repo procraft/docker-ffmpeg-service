@@ -18,11 +18,154 @@ app.use(compression());
 winston.remove(winston.transports.Console);
 winston.add(winston.transports.Console, {'timestamp': true});
 
+function runFfmpegConversion(createFfmpegCommand, outputFile, res, ffmpegOutputOptions, cleanupInput, fromLabel) {
+    winston.info(JSON.stringify({
+        action: 'begin conversion',
+        from: fromLabel,
+        to: outputFile,
+    }));
+
+    let ffmpegConvertCommand = createFfmpegCommand();
+
+    ffmpegConvertCommand
+        .renice(15)
+        .outputOptions(ffmpegOutputOptions)
+        .on('error', function(err) {
+            let log = JSON.stringify({
+                type: 'ffmpeg',
+                message: err.message || err.toString(),
+            });
+            winston.error(log);
+
+            if (cleanupInput) {
+                try {
+                    cleanupInput();
+                } catch (cleanupErr) {
+                    winston.error(JSON.stringify({
+                        type: 'cleanup',
+                        message: cleanupErr.message || cleanupErr.toString(),
+                    }));
+                }
+            }
+
+            res.writeHead(500, {'Connection': 'close'});
+            res.end(log);
+        })
+        .on('end', function() {
+            if (cleanupInput) {
+                try {
+                    cleanupInput();
+                } catch (cleanupErr) {
+                    winston.error(JSON.stringify({
+                        type: 'cleanup',
+                        message: cleanupErr.message || cleanupErr.toString(),
+                    }));
+                }
+            }
+
+            winston.info(JSON.stringify({
+                action: 'starting download to client',
+                file: outputFile,
+            }));
+
+            res.download(outputFile, null, function(err) {
+                if (err) {
+                    winston.error(JSON.stringify({
+                        type: 'download',
+                        message: err.message || err.toString(),
+                    }));
+                }
+                winston.info(JSON.stringify({
+                    action: 'deleting',
+                    file: outputFile,
+                }));
+                fs.unlinkSync(outputFile);
+                winston.info(JSON.stringify({
+                    action: 'deleted',
+                    file: outputFile,
+                }));
+            });
+        })
+        .save(outputFile);
+}
+
 for (let prop in endpoints.types) {
     if (endpoints.types.hasOwnProperty(prop)) {
         let ffmpegParams = endpoints.types[prop];
         let bytes = 0;
         app.post('/' + prop, function(req, res) {
+            const contentType = req.headers['content-type'] || '';
+
+            if (contentType.indexOf('application/json') !== -1) {
+                let body = '';
+
+                req.on('data', (chunk) => {
+                    body += chunk.toString();
+                });
+
+                req.on('end', () => {
+                    try {
+                        const data = JSON.parse(body);
+                        const sourceUrl = data.playlistUrl || data.url;
+
+                        if (!sourceUrl) {
+                            res.writeHead(400, {'Content-Type': 'application/json'});
+                            res.end(JSON.stringify({error: 'playlistUrl or url is required'}));
+                            return;
+                        }
+
+                        let outputOptions = ffmpegParams.outputOptions;
+                        if (data.outputOptions && typeof data.outputOptions === 'string') {
+                            const overridden = data.outputOptions.split(';');
+                            winston.info(JSON.stringify({
+                                event: 'found outputOptions to override the existing ones',
+                                existing: ffmpegParams.outputOptions,
+                                new: overridden,
+                            }));
+                            outputOptions = overridden;
+                        }
+
+                        const outputFile = uniqueFilename(__dirname + '/uploads/') + '.' + ffmpegParams.extension;
+
+                        let inputOptions = [];
+                        if (data.userAgent) {
+                            inputOptions.push('-user_agent');
+                            inputOptions.push(data.userAgent);
+                        }
+
+                        winston.info(JSON.stringify({
+                            action: 'url conversion request',
+                            url: sourceUrl,
+                            userAgent: data.userAgent || 'none',
+                        }));
+
+                        runFfmpegConversion(
+                            () => {
+                                let command = ffmpeg(sourceUrl);
+                                if (inputOptions.length) {
+                                    command = command.inputOptions(inputOptions);
+                                }
+                                return command;
+                            },
+                            outputFile,
+                            res,
+                            outputOptions,
+                            null,
+                            sourceUrl
+                        );
+                    } catch (err) {
+                        winston.error(JSON.stringify({
+                            type: 'parse error',
+                            message: err.message || err.toString(),
+                        }));
+                        res.writeHead(400, {'Content-Type': 'application/json'});
+                        res.end(JSON.stringify({error: 'Invalid JSON: ' + err.message}));
+                    }
+                });
+
+                return;
+            }
+
             let hitLimit = false;
             let fileName = '';
             let savedFile = uniqueFilename(__dirname + '/uploads/');
@@ -104,51 +247,17 @@ for (let prop in endpoints.types) {
                     name: fileName,
                 }));
                 let outputFile = savedFile + '.' + ffmpegParams.extension;
-                winston.info(JSON.stringify({
-                    action: 'begin conversion',
-                    from: savedFile,
-                    to: outputFile,
-                }));
-                let ffmpegConvertCommand = ffmpeg(savedFile);
-                ffmpegConvertCommand
-                    .renice(15)
-                    .outputOptions(ffmpegParams.outputOptions)
-                    .on('error', function(err) {
-                        let log = JSON.stringify({
-                            type: 'ffmpeg',
-                            message: err.message || err.toString(),
-                        });
-                        winston.error(log);
-                        fs.unlinkSync(savedFile);
-                        res.writeHead(500, {'Connection': 'close'});
-                        res.end(log);
-                    })
-                    .on('end', function() {
-                        fs.unlinkSync(savedFile);
-                        winston.info(JSON.stringify({
-                            action: 'starting download to client',
-                            file: savedFile,
-                        }));
 
-                        res.download(outputFile, null, function(err) {
-                            if (err) {
-                                winston.error(JSON.stringify({
-                                    type: 'download',
-                                    message: err.message || err.toString(),
-                                }));
-                            }
-                            winston.info(JSON.stringify({
-                                action: 'deleting',
-                                file: outputFile,
-                            }));
-                            fs.unlinkSync(outputFile);
-                            winston.info(JSON.stringify({
-                                action: 'deleted',
-                                file: outputFile,
-                            }));
-                        });
-                    })
-                    .save(outputFile);
+                runFfmpegConversion(
+                    () => ffmpeg(savedFile),
+                    outputFile,
+                    res,
+                    ffmpegParams.outputOptions,
+                    function() {
+                        fs.unlinkSync(savedFile);
+                    },
+                    savedFile
+                );
             });
             return req.pipe(busboy);
         });
@@ -166,9 +275,11 @@ app.post('/screenshot', function(req, res) {
         try {
             const data = JSON.parse(body);
 
-            if (!data.playlistUrl || !data.timestamp) {
+            const sourceUrl = data.url || data.playlistUrl;
+
+            if (!sourceUrl || !data.timestamp) {
                 res.writeHead(400, {'Content-Type': 'application/json'});
-                res.end(JSON.stringify({error: 'playlistUrl and sec are required'}));
+                res.end(JSON.stringify({error: 'url and timestamp are required'}));
                 return;
             }
 
@@ -176,12 +287,12 @@ app.post('/screenshot', function(req, res) {
 
             winston.info(JSON.stringify({
                 action: 'screenshot conversion request',
-                playlistUrl: data.playlistUrl,
+                url: sourceUrl,
                 timestamp: data.timestamp,
                 userAgent: data.userAgent || 'none',
             }));
 
-            let ffmpegCommand = ffmpeg(data.playlistUrl);
+            let ffmpegCommand = ffmpeg(sourceUrl);
             let inputOptions = ['-ss', data.timestamp];
 
             if (data.userAgent) {

@@ -6,15 +6,20 @@ Based off of jrottenberg/ffmpeg container
 
 ## Endpoints
 
-> POST /mp3 - Convert audio file in request body to mp3
+> POST /mp3 - Convert audio file in request body or by URL to mp3
 
-> POST /mp4 - Convert video file in request body to mp4
+> POST /mp4 - Convert video file in request body or by URL to mp4
 
-> POST /jpg - Convert image file to jpg
+> POST /jpg - Convert image file in request body or by URL to jpg 
  
 > POST /screenshot - Create screenshot on time from m3u8 playlist
 
 > GET /, /readme - Web Service Readme
+
+All conversion endpoints (`/mp3`, `/m4a`, `/mp4`, `/jpg`) support two input formats:
+
+- multipart form upload with a file (`file=@input.ext`)
+- JSON body with a URL to media (`playlistUrl` or `url`)
 
 ### /mp3, /m4a
 
@@ -34,10 +39,51 @@ Curl Ex:
 
 > curl -F "file=@input.png" -F 'outputOptions=-codec:v libx264;-crf 20' 127.0.0.1:3000/mp4  > output.mp4
 
+### /mp3, /m4a, /mp4, /jpg with URL (JSON)
+
+You can also pass a URL (for example, an HLS playlist) instead of uploading a file.  
+Send a JSON body with `Content-Type: application/json` and `url` (preferred) or `playlistUrl` (kept for backward compatibility):
+
+```json
+{
+  "url": "https://example.com/playlist.m3u8",
+  "userAgent": "Optional User-Agent string",
+  "outputOptions": "-codec:a libmp3lame;-b:a 192k"
+}
+```
+
+`userAgent` is optional and will be passed to ffmpeg as `-user_agent`.  
+`outputOptions` is optional and should be a single string where individual ffmpeg options are separated by `;`.  
+If `outputOptions` is provided, it overrides the default options for the endpoint.
+
+Curl examples:
+
+Convert URL to mp3:
+
+```bash
+curl -X POST http://localhost:3000/mp3 \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://example.com/playlist.m3u8"
+  }' \
+  --output output.mp3
+```
+
+Convert URL to m4a:
+
+```bash
+curl -X POST http://localhost:3000/m4a \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://example.com/playlist.m3u8"
+  }' \
+  --output output.m4a
+```
+
 > curl -X POST http://localhost:3000/screenshot \
     -H "Content-Type: application/json" \
     -d '{
-        "playlistUrl": "https://site.com/playlist.m3u8",
+        "url": "https://site.com/playlist.m3u8",
         "timestamp": "00:00:05.500",
         "userAgent": "Some User-Agent"
     }' \

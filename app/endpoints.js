@@ -5,6 +5,12 @@ const defaultTypes = {
             '-pix_fmt yuv422p',
         ],
     },
+    ogg: {
+        extension: 'ogg',
+        outputOptions: [
+            '-codec:a libvorbis',
+        ],
+    },
     m4a: {
         extension: 'm4a',
         outputOptions: [
