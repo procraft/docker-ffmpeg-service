@@ -20,7 +20,8 @@ const defaultTypes = {
     mp3: {
         extension: 'mp3',
         outputOptions: [
-            '-codec:a libmp3lame',
+          '-vn',
+          '-b:a 128k',
         ],
     },
     mp4: {

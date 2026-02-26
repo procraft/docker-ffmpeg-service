@@ -19,13 +19,13 @@ winston.remove(winston.transports.Console);
 winston.add(winston.transports.Console, {'timestamp': true});
 
 function runFfmpegConversion(createFfmpegCommand, outputFile, res, ffmpegOutputOptions, cleanupInput, fromLabel) {
+    let ffmpegConvertCommand = createFfmpegCommand();
+    
     winston.info(JSON.stringify({
         action: 'begin conversion',
         from: fromLabel,
         to: outputFile,
     }));
-
-    let ffmpegConvertCommand = createFfmpegCommand();
 
     ffmpegConvertCommand
         .renice(15)
@@ -34,6 +34,7 @@ function runFfmpegConversion(createFfmpegCommand, outputFile, res, ffmpegOutputO
             let log = JSON.stringify({
                 type: 'ffmpeg',
                 message: err.message || err.toString(),
+                command:  ffmpegConvertCommand._getArguments().join(' '),
             });
             winston.error(log);
 
