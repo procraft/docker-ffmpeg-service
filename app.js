@@ -34,7 +34,7 @@ function runFfmpegConversion(createFfmpegCommand, outputFile, res, ffmpegOutputO
             let log = JSON.stringify({
                 type: 'ffmpeg',
                 message: err.message || err.toString(),
-                command:  ffmpegConvertCommand._getArguments().join(' '),
+                command: 'ffmpeg ' + ffmpegConvertCommand._getArguments().join(' '),
             });
             winston.error(log);
 
@@ -115,7 +115,7 @@ for (let prop in endpoints.types) {
                             return;
                         }
 
-                        let outputOptions = ffmpegParams.outputOptions;
+                        let outputOptions = ffmpegParams.outputOptions.slice();
                         if (data.outputOptions && typeof data.outputOptions === 'string') {
                             const overridden = data.outputOptions.split(';');
                             winston.info(JSON.stringify({
@@ -124,6 +124,14 @@ for (let prop in endpoints.types) {
                                 new: overridden,
                             }));
                             outputOptions = overridden;
+                        }
+                        if (data.extraOutputOptions && typeof data.extraOutputOptions === 'string') {
+                            const extra = data.extraOutputOptions.split(';');
+                            winston.info(JSON.stringify({
+                                event: 'appending extraOutputOptions',
+                                extra: extra,
+                            }));
+                            outputOptions = outputOptions.concat(extra);
                         }
 
                         const outputFile = uniqueFilename(__dirname + '/uploads/') + '.' + ffmpegParams.extension;
@@ -170,6 +178,8 @@ for (let prop in endpoints.types) {
             let hitLimit = false;
             let fileName = '';
             let savedFile = uniqueFilename(__dirname + '/uploads/');
+            let requestOutputOptions = null;
+            let requestExtraOutputOptions = [];
             let busboy = new Busboy({
                 headers: req.headers,
                 limits: {
@@ -229,13 +239,19 @@ for (let prop in endpoints.types) {
             });
             busboy.on('field', (name, val, info) => {
                 if (name === 'outputOptions' && val) {
-                    const newOutputOptions = val.split(';');
+                    requestOutputOptions = val.split(';');
                     winston.info(JSON.stringify({
                         event: 'found outputOptions to override the existing ones',
                         existing: ffmpegParams.outputOptions,
-                        new: newOutputOptions,
+                        new: requestOutputOptions,
                     }));
-                    ffmpegParams.outputOptions = newOutputOptions;
+                }
+                if (name === 'extraOutputOptions' && val) {
+                    requestExtraOutputOptions = val.split(';');
+                    winston.info(JSON.stringify({
+                        event: 'appending extraOutputOptions',
+                        extra: requestExtraOutputOptions,
+                    }));
                 }
             });
             busboy.on('finish', function() {
@@ -248,12 +264,14 @@ for (let prop in endpoints.types) {
                     name: fileName,
                 }));
                 let outputFile = savedFile + '.' + ffmpegParams.extension;
+                let opts = (requestOutputOptions !== null ? requestOutputOptions : ffmpegParams.outputOptions).slice();
+                opts = opts.concat(requestExtraOutputOptions);
 
                 runFfmpegConversion(
                     () => ffmpeg(savedFile),
                     outputFile,
                     res,
-                    ffmpegParams.outputOptions,
+                    opts,
                     function() {
                         fs.unlinkSync(savedFile);
                     },

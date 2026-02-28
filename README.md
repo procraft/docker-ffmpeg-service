@@ -53,8 +53,8 @@ Send a JSON body with `Content-Type: application/json` and `url` (preferred) or 
 ```
 
 `userAgent` is optional and will be passed to ffmpeg as `-user_agent`.  
-`outputOptions` is optional and should be a single string where individual ffmpeg options are separated by `;`.  
-If `outputOptions` is provided, it overrides the default options for the endpoint.
+`outputOptions` is optional: a single string with ffmpeg options separated by `;`. If provided, it **replaces** the default options for the endpoint.  
+`extraOutputOptions` is optional: a string with options separated by `;` that are **appended** to the default (or to `outputOptions`). Use it to pass offset and duration for a fragment, e.g. `-ss 00:01:30;-t 60` (start at 1m30s, length 60 seconds).
 
 Curl examples:
 
@@ -78,6 +78,24 @@ curl -X POST http://localhost:3000/m4a \
     "url": "https://example.com/playlist.m3u8"
   }' \
   --output output.m4a
+```
+
+Extract a 60-second audio fragment starting at 1m30s (works for both URL and file upload):
+
+```bash
+curl -X POST http://localhost:3000/mp3 \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://example.com/playlist.m3u8",
+    "extraOutputOptions": "-ss 00:01:30;-t 60"
+  }' \
+  --output fragment.mp3
+```
+
+With file upload, pass `extraOutputOptions` as a form field:
+
+```bash
+curl -F "file=@input.wav" -F 'extraOutputOptions=-ss 00:01:30;-t 60' http://localhost:3000/mp3 -o fragment.mp3
 ```
 
 > curl -X POST http://localhost:3000/screenshot \
