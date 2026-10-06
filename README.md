@@ -103,9 +103,13 @@ curl -F "file=@input.wav" -F 'extraOutputOptions=-ss 00:01:30;-t 60' http://loca
     -d '{
         "url": "https://site.com/playlist.m3u8",
         "timestamp": "00:00:05.500",
-        "userAgent": "Some User-Agent"
+        "userAgent": "Some User-Agent",
+        "width": 1352,
+        "height": 720
     }' \
     --output screenshot.jpg
+
+`width` and `height` are optional: when both are set, the frame is scaled to exactly that size.
 
 ## Configuration and New Endpoints
 You can replace the ffmpeg conversion settings by environment variable ENDPOINTS:

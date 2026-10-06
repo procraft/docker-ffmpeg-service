@@ -309,6 +309,8 @@ app.post('/screenshot', function(req, res) {
                 url: sourceUrl,
                 timestamp: data.timestamp,
                 userAgent: data.userAgent || 'none',
+                width: data.width,
+                height: data.height,
             }));
 
             let ffmpegCommand = ffmpeg(sourceUrl);
@@ -319,9 +321,20 @@ app.post('/screenshot', function(req, res) {
                 inputOptions.push(data.userAgent);
             }
 
+            // Без -q:v mjpeg кодирует кадр по битрейту по умолчанию и размывает мелкий текст
+            let outputOptions = ['-frames:v', '1', '-q:v', '2'];
+
+            // Необязательный размер кадра: координаты, размеченные на прежнем кадре, остаются верными
+            const width = parseInt(data.width, 10);
+            const height = parseInt(data.height, 10);
+            if (width > 0 && height > 0) {
+                outputOptions.push('-vf');
+                outputOptions.push('scale=' + width + ':' + height);
+            }
+
             ffmpegCommand
                 .inputOptions(inputOptions)
-                .outputOptions(['-frames:v', '1'])
+                .outputOptions(outputOptions)
                 .renice(15)
                 .on('start', function(commandLine) {
                     winston.info('FFmpeg command: ' + commandLine);
